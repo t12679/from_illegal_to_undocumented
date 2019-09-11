@@ -1,0 +1,939 @@
+---
+title: "new_file"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#if you are having problems with some code and cannot figure out what it is, then copy and paste your code into a new R file line by line andd run it, searching fo the errors. 
+
+# Load packages and data
+
+```{r, message = F, warning = F, echo = T }
+# load packages
+library(tidyverse)
+library(lme4)
+
+# set your working directory
+# setwd("~/user/working_directory")
+
+# load cleaned data file for survey results
+#ds <- read.csv("https://github.com/compsocialscience/summer-institute/raw/master/2019/materials/day4-surveys/activity/2019-06-13_mturk_data_clean.csv")
+ds <- read_csv(~"Documents/Rhetorical_Shift_from_Illegal_to_Undocumented/survey_experiment_data_prepared_for_analysis_expanded.csv")
+## not using education or political attention check, so drop these vars
+## (you can use these if you want!)
+#data <- data %>% select(-attention1, -educ)
+
+## NOTE: if you are using your own survey results, you will need to 
+## do some wrangling before you can match with the benchmark or acs data
+## for a walkthrough, see https://github.com/compsocialscience/summer-institute/blob/master/2019/materials/day4-surveys/activity/mturk_data_cleaning.Rmd
+
+# load external information -- in this case, population info
+census <- read.csv("https://github.com/compsocialscience/summer-institute/raw/master/2019/materials/day4-surveys/activity/2017_acs_data_clean.csv")
+
+# load pew benchmarks
+pew <- read.csv("https://github.com/compsocialscience/summer-institute/raw/master/2019/materials/day4-surveys/activity/2019_pew_benchmark_data.csv", 
+                col.names = c("qid", "label", "pew_estimate", "source"))
+pew <- pew %>% select(qid, pew_estimate)
+class(pew$qid)
+class(pew$pew_estimate)
+
+#everything is a factor except the nuemric colummn
+```
+
+
+\newpage
+
+# Approach 1: Simple means 
+
+First, we'll just take the mean of the whole sample for each question. This approach doesn't use any post-stratification.
+
+## 1.1) Calculate means
+
+```{r}
+# take the mean of survey responses in mturk data
+## remove demographic variables (factor vars)
+## get column means
+mturk_means <- ds %>% select(-sex, -race, -age_cat, -region, -educ, -attention1) %>%
+  summarise_all(~mean(., na.rm = T))
+
+# reshape from wide to long
+## with columns for questions (call this qid) and for mean
+mturk_means <- mturk_means %>% gather(qid, mean)
+
+# preview
+head(mturk_means)
+#this gives the mean of each variable in the whole data set ds
+```
+
+
+## 1.2) Plot estimated means against benchmarks
+
+**Tip**: You will be making this type of plot each time you generate a new set of estimates, so it would be helpful to write a function for this.
+
+```{r}
+
+# merge mturk mean estimates with pew benchmark by quetion ID ("qid")
+mean_est <- inner_join(pew, mturk_means, by = c("qid"))
+head(mean_est)
+
+# make function for plot
+plot_comparison <- function(est_table, method, caption){
+  graph <-  ggplot(est_table, 
+                   aes(x = pew_estimate, y = method)) + 
+  geom_point() + 
+  labs(x = "Estimates from Pew", y = caption) +
+  scale_x_continuous(limits = c(0,1)) + 
+  scale_y_continuous(limits = c(0,1)) + 
+  geom_abline(intercept = 0, slope = 1, linetype = "dotted") + 
+  coord_fixed()
+  return(graph)
+}  
+
+# plotthe estimates of means(mean_est) by assigning it to est_table, plot the means of the mean_est data frame as y against the pew_estimates as x by assigning mean_est$mean to method, and assing "Non-weighted estimates from MTurk" to caption  
+plot_comparison(est_table = mean_est, 
+                method = mean_est$mean, 
+                caption = "Non-weighted estimates from MTurk")
+
+```
+
+
+## 1.3) Plot distribution of estimation-benchmark differences 
+
+**Tip**: You will also be making this type of plot each time you generate a new set of estimates, so it would be helpful to write a function for this as well.
+
+```{r}
+# calculate difference by assigning a diff column to mean_est which equals the absolute difference of the mean_est$mean minus the pew_estimate column of mean_est
+mean_est$diff <- abs(mean_est$mean - mean_est$pew_estimate)
+
+# function for plotting difference
+plot_diff <- function(est_table){
+  diff_graph <- ggplot(est_table, aes(x = diff)) + 
+  geom_histogram(aes(y = (..count..)/sum(..count..)), binwidth = .025, 
+                 colour = "black", fill = "white") + 
+  theme_bw() + 
+  geom_vline(aes(xintercept = median(diff)), linetype = "longdash") + #draw a vertical line at the x-intercept that is median of the difference and make the line a long dash
+  labs(x = "absolute difference", y = "density") + 
+  scale_y_continuous(limits = c(0, 0.45)) #make the y-axis scale run from 0 to 0.45
+  return(diff_graph)
+}
+
+# plot
+plot_diff(mean_est)
+
+```
+
+
+
+\newpage
+
+# Approach 2: Means with post-stratification (8 groups)
+
+## 2.1) Calculate group means, group weights, and weighted means
+
+To start, group by sex and region only. This should give you 8 groups (2 sexes by 4 regions).
+
+Group weights can be calculated as $\frac{N_{h}}{N}$. They should sum to 1. You will need to calculate these group weights for the other approaches as well. 
+
+```{r}
+# get total census population, create a new vector that is the total number of people in the US census
+N <- sum(census$POP)
+N
+# calculate group weights 
+## group population data by sex and region,
+## get the sum for each cell and divide by total pop
+
+#NOTE: You need to detach the plyr package or it will transform population_counts into 1 by 1 dataframe. 
+library(plyr)
+detach(package:plyr)
+#but you have to load it again later when you do the match_df command and then detach it.
+population_counts <- census %>% 
+  group_by(sex, region) %>%
+  summarise(group_weight = sum(POP)/N)
+
+#this creates a column called the group_weight that is the number of people in each sex-region group divided by the total population 
+
+# check that weights sum to one
+if (sum(population_counts$group_weight) != 1) {
+  print("weights don't sum to one")
+}
+#this will say weight don't sum to 1 if when you add all the population weights they do not add to 1. 
+head(population_counts)
+#here you calculate the average response for each dependent varaible within each group
+# calculate group means for each question response
+## group data by sex and region
+## remove non-numeric variables (demographic vars)
+## calculate group means for each column
+sample_counts <- ds %>%
+  group_by(sex, region) %>% 
+  select_if(is.numeric) %>%
+  summarise_all(list(~mean(.,na.rm = T)))
+
+# preview -- scroll for more columns
+head(sample_counts)
+
+```
+
+
+```{r}
+# check that there are no empty cells
+if (nrow(sample_counts) < nrow(population_counts)) {
+  print("GROUPS MISSING:")
+  print(nrow(population_counts) - nrow(sample_counts))
+}
+
+
+# merge population counts with sample counts
+# left join and retain all groups in population
+cell_based <- left_join(population_counts, 
+            sample_counts, 
+            by = c("sex", "region"))
+
+# reshape wide to long
+cell_based_long <- cell_based %>% gather(qid, mean, 
+                                         -c(sex, region, group_weight),
+                                         na.rm = F)
+
+head(cell_based_long)
+
+
+
+# with mutate create a new column in cell_based_long called weighted mean which is the group means times group weights in the cell_based_long dataframe 
+
+cell_based_long <- mutate(cell_based_long, weighted_mean = group_weight*mean)
+
+
+head(cell_based_long)
+
+# sum weighted means, grouping by question
+#this creates a mturk_cell_est data frame which is the cell_based_long data but with a single column that lists the sum of each group's weighted means for each question ID (removing missing cases)
+mturk_cell_est <- cell_based_long %>% 
+  group_by(qid) %>%
+  summarise(mturk_cell_estimate = sum(weighted_mean, na.rm = T))
+mturk_cell_est
+
+head(mturk_cell_est)
+```
+
+## 2.2) Plot estimated means (which as the sum of the means for each stratified group) against benchmarks by first left joining this data set to the pew data set qid 
+
+```{r}
+# merge mturk cell-based weighted estimates with benchmark
+simple_cell_est <- inner_join(pew, mturk_cell_est, by = c("qid"))
+head(simple_cell_est)
+
+# plot (you can use the function we created above, except now the est_table is the simple_cell_est object you just created, the method (thing on the y axis is the mturk_cell_estimate within the simple_cell_est data frame, and the caption is weighted estimates from MTurk))
+plot_comparison(est_table = simple_cell_est, 
+                method = simple_cell_est$mturk_cell_estimate, 
+                caption = "weighted estimates from MTurk")
+```
+
+
+## 2.3) Plot distribution of estimation-benchmark differences
+
+```{r}
+#calculate difference
+#here we do the same thing as before, except now we are creating a column diff which is the absolute difference between the mturk_cell_estimate in the simple_cell_est data frame and the pew_estimate of the simple_cell_est
+
+simple_cell_est$diff <- abs(simple_cell_est$mturk_cell_estimate - simple_cell_est$pew_estimate)
+
+#plot
+plot_diff(simple_cell_est)
+
+
+```
+
+
+
+
+\newpage
+
+# Approach 3: Means with post-stratification (160 groups) and missing group imputation
+
+## 3.1) Calculate group means, group weights, and weighted means
+
+Can you get better estimates grouping by more variables? Try grouping on sex, region, age group, and race. 
+
+You will now have 160 groups (2 x 4 x 5 x 4). Some of groups may be missing from your sample (e.g. 50-64 year old black women in the midwest). If a group is missing, their answers will automatically be treated as "zero" when computing weighted means. As a result, some question responses may be underestimated. One way to deal with this is to impute the missing values with the sample average for that variable (aka the simple means we calculated in the first step). You will do this in the next step. 
+
+First, calculate the new group means, group weights, and weighted means as you did above in Approach 2. 
+
+```{r}
+# get total population
+N <- sum(census$POP)
+# calculate group means, group weights, and weighted means
+#I will call this population_counts_160 to indicate that these are population counts in the census within each of 160 groups. We calculate a group_weight which is the proportion of the total population that is in that group.
+population_counts_160 <- census %>% 
+  group_by(sex, region, age_cat, race) %>%
+  summarise(group_weight = sum(POP)/N)
+
+# check that weights sum to one
+if (sum(population_counts_160$group_weight) != 1) {
+  print("weights don't sum to one")
+}
+
+head(population_counts_160)
+tail(population_counts_160)
+#calculate group means for each question response
+## remove non-numeric variables (demographic vars)
+## calculate group means for each column
+sample_counts_160 <- ds %>%
+  group_by(sex, region, age_cat, race) %>% 
+  select_if(is.numeric) %>%
+  summarise_all(list(~mean(.,na.rm = T)))
+
+# preview -- scroll for more columns
+head(sample_counts_160)
+```
+
+
+
+
+# check that there are no empty cells
+if (nrow(sample_counts_160) < nrow(population_counts_160)) {
+  print("GROUPS MISSING:")
+  print(nrow(population_counts_160) - nrow(sample_counts_160))
+}
+#this tells us that 76 groups are missing. Now we must find out which groups those are. 
+
+
+```
+
+```{r} 
+#calculate the means of the non imputed groups
+#calculate the weighted means:
+sample_counts_160_means <- sample_counts_160 %>%
+  group_by(sex, region, race, age_cat) %>% 
+  select_if(is.numeric) %>%#this gets all the variables that are the means
+  summarise_all(list(~mean(.,na.rm = T)))#give the means of all sample_counts as a list removing the NAs
+head(sample_counts_160_means)
+# preview -- scroll for more columns
+head(sample_counts_160_means)
+
+
+# merge population counts with sample counts of means for 160 stratified groups
+# left join and retain all groups in population
+cell_based_160 <- left_join(population_counts_160, 
+                        sample_counts_160_means, 
+                        by = c("sex", "region", "race", "age_cat"))
+
+#I am noticin that PartyLn still has some NaNs. Is that a problem? No, they just did not answer
+
+#now we calculate weighted means by putting hte data in long form:
+
+#put race back as a factor
+cell_based_160$race<-as.factor(cell_based_160$race)
+
+# reshape wide to long
+cell_based_long <- cell_based_160 %>% gather(qid, mean, 
+                                         -c(sex, age_cat, race, region, group_weight),
+                                         na.rm = F)
+#you need to remember to remove all varaibles 
+head(cell_based_long)
+
+# with mutate create a new column in cell_based_long called weighted mean which is the group means times group weights in the cell_based_long dataframe 
+
+
+weighted_means_long <- mutate(cell_based_long, weighted_mean = group_weight*mean)
+head(weighted_means_long)
+
+#we need to convert qid to a factor because we need to group by something and to group by something you need to have that thing be a factor
+weighted_means_long$qid<-as.factor(weighted_means_long$qid)
+
+
+weighted_means_long_by_group_nonimputed<-weighted_means_long%>%
+  group_by(qid)%>%
+  summarise(weighted_means_by_group=sum(weighted_mean, na.rm=T))
+head(weighted_means_long_by_group_nonimputed)
+
+#I did an inner_join as it is in the original code. This takes everything that is in pew and #weighted_means_long_by_group_nonimputed and excludes everything else
+weighted_means_long_by_group_nonimputed<-inner_join(weighted_means_long_by_group_nonimputed, pew, by=c("qid"))
+weighted_means_long_by_group_nonimputed
+
+
+
+weighted_means_long_by_group_nonimputed$qid<-as.factor(weighted_means_long_by_group_nonimputed$qid)
+names(weighted_means_long_by_group_nonimputed)
+
+```
+
+
+### 3.1.1) Dealing with missing groups: imputing with sample means
+
+Now, replace the missing groups with the sample means you computed in 1.1. 
+
+
+
+
+```{r}
+
+#here we will anti-join on the common groups
+# replace missing group means with sample means
+## Find the missing rows (groups)
+library(plyr) #Load plyr here so it doesn't mess with dplyr earlier
+##Missing rows should be the non-matched rows
+
+
+missing_rows <- anti_join(population_counts_160, match_df(population_counts_160, sample_counts_160, on = c("sex", "race", "region", "age_cat")), by = c("sex", "race", "region", "age_cat"))
+head(missing_rows)
+#notice that unsurprisingly many of the empty rows are elderly asian, black and other ethnic minority women in the midwest
+detach(package:plyr) #Avoid later problems between plyr and dplyr (which often mask each other)
+
+#now we make a new dataframe called missing_groups_test which is identical to missing_rows. 
+#except then we run an anonymous for loop that goes through each nrow in mturk_means and assigns a value of NA to the mturk_means column of missing_groups_test, and then assigns the vlaue (which is the overall mean for a question within each stratified group ) that is in the second column of mturk_means ) Draw a diagram
+missing_groups_test = missing_rows
+for (i in 1:nrow(mturk_means)) {
+  
+  missing_groups_test[ , mturk_means[i, 1]] = NA
+  missing_groups_test[, mturk_means[i, 1]] = mturk_means[i, 2]
+  
+}
+#you need to use brackets to build for loops, cannot use $, so this is why it is hard to create new variables in a loop. 
+
+
+#crate new dataframe called missing rows that consists of all rows that are not in both 
+#population_counts_160 and the rows that are in both in sample_counts_160 and population_counts_160
+#as matched by "sex", "race", "region", "age_cat".  help me draw this. 
+
+#notice how each group has the same mean for each question
+
+#you need to use brackets to build for loops, cannot use $, so this is why it is hard to create new variables in a loop. 
+
+#Add missing groups (that are stored in the missing_groups_test and contain the 
+#overall mean answer for a given question of the whole population) to the sample_counts_160 dataframe
+sample_counts_160<-rbind(sample_counts_160, missing_groups_test)
+head(sample_counts_160)
+
+
+ds$age_cat <- as.factor(ds$age_cat) #Put age_cat back into factor form 
+
+
+#an alternative way to do the above is to just create a list of the missing cases with is.na
+#then do an inner join on the population data to get the missing cases
+<!-- missing_groups <- cell_based_long %>% filter(is.na(mean)) -->
+<!-- # merge sample means vector created in 1.1 (mturk_means) with this new dataframe -->
+<!-- missing_groups_imputed <- inner_join(missing_groups, mturk_means, by = c("qid")) %>% -->
+<!--   select(-mean.x, -weighted_mean) %>% -->
+<!--   rename(mean = mean.y) -->
+<!-- # now merge back with all non-missing groups (stored in cell_based_long) -->
+<!-- cell_based_long_imputed <- right_join(missing_groups_imputed, cell_based_long, -->
+<!--                                      by = c("sex", "age_cat", "region", "race", -->
+<!--                                             "group_weight" , "qid")) %>% -->
+<!--                             mutate(mean = ifelse(is.na(mean.x), mean.y, mean.x)) %>% -->
+<!--                             select(-mean.x, -mean.y, -weighted_mean) %>% -->
+<!-- # and recalculate weighted means   -->
+<!--                             mutate(weighted_mean_imputed = group_weight*mean) -->
+
+
+
+
+
+
+
+
+
+
+#starting our from the first menthod:
+#calculate the weighted means:
+sample_counts_160_means <- sample_counts_160 %>%
+  group_by(sex, region, race, age_cat) %>% 
+  select(-group_weight) %>% #Don't take a mean of the group weight, but of the questions
+  select_if(is.numeric) %>%#this gets all the variables that are the means
+  summarise_all(list(~mean(.,na.rm = T)))#give the means of all sample_counts as a list removing the NAs
+head(sample_counts_160_means)
+# preview -- scroll for more columns
+head(sample_counts_160_means)
+
+
+# merge population counts with sample counts of means for 160 stratified groups
+# left join and retain all groups in population
+cell_based_160 <- left_join(population_counts_160, 
+                        sample_counts_160_means, 
+                        by = c("sex", "region", "race", "age_cat"))
+View(cell_based_160)
+#I am noticin that PartyLn still has some NaNs. Is that a problem? No, they just did not answer
+
+#now we calculate weighted means by putting hte data in long form:
+
+
+# reshape wide to long
+weighted_means_long <- cell_based_160 %>% gather(qid, mean, 
+                                         -c(sex, age_cat, race, region, group_weight),
+                                         na.rm = F)
+#you need to remember to remove all varaibles 
+head(weighted_means_long)
+
+# with mutate create a new column in cell_based_long called weighted mean which is the group means times group weights in the cell_based_long dataframe 
+
+
+weighted_means_long <- mutate(weighted_means_long, weighted_mean = group_weight*mean)
+head(weighted_means_long)
+
+#we need to convert qid to a factor because we need to group by something and to group by something you need to have that thing be a factor
+weighted_means_long$qid<-as.factor(weighted_means_long$qid)
+
+weighted_means_long_by_group<-weighted_means_long%>%
+  group_by(qid)%>%
+  summarise(weighted_means_by_group=sum(weighted_mean, na.rm=T))
+head(weighted_means_long_by_group)
+
+
+
+
+```
+
+
+## 3.2) Plot estimated means against benchmarks
+
+
+
+
+
+```{r}
+#Plot both your new group means and the estimated means against the Pew benchmarks. 
+
+################################## WITH NO IMPUTATION ###################################
+#first join the pew estimates to 
+
+weighted_means_long_by_group<-weighted_means_long%>%
+  group_by(qid)%>%
+  summarise(weighted_means_by_group=sum(weighted_mean, na.rm=T))
+head(weighted_means_long_by_group)
+
+weighted_means_long_by_group<-inner_join(pew, weighted_means_long_by_group, by=c("qid"))
+#this coerces qid to be a character vector. It is best to immediately change it to a factor varaible otherwise it may present problems later when you group by again. 
+weighted_means_long_by_group
+```
+
+weighted_means_long_by_group$qid<-as.factor(weighted_means_long_by_group$qid)
+
+
+
+
+
+#reminder of code for plot_comparison function
+plot_comparison <- function(est_table, method, caption){
+  graph <-  ggplot(est_table, 
+                   aes(x = pew_estimate, y = method)) + 
+  geom_point() + 
+  labs(x = "Estimates from Pew", y = caption) +
+  scale_x_continuous(limits = c(0,1)) + 
+  scale_y_continuous(limits = c(0,1)) + 
+  geom_abline(intercept = 0, slope = 1, linetype = "dotted") + 
+  coord_fixed()
+  return(graph)
+}  
+#when you plot the method, you need to specify which column you want to plot. 
+
+
+
+plot_comparison_nonimputed<-plot_comparison(est_table=weighted_means_long_by_group_nonimputed, method=weighted_means_long_by_group_nonimputed$weighted_means_by_group, caption= "Weighted Means With 160 Group and Imputation")
+plot_comparison_nonimputed
+```
+
+
+
+
+################################## WITH IMPUTATION ######################################
+#first join the pew estimates to 
+weighted_means_long_by_group<-left_join(pew, weighted_means_long_by_group, by=c("qid"))
+#this coerces qid to be a character vector. It is best to immediately change it to a factor varaible otherwise it may present problems later when you group by again. 
+weighted_means_long_by_group$qid<-as.factor(weighted_means_long_by_group$qid)
+
+#reminder of code for plot_comparison function
+plot_comparison <- function(est_table, method, caption){
+  graph <-  ggplot(est_table, 
+                   aes(x = pew_estimate, y = method)) + 
+  geom_point() + 
+  labs(x = "Estimates from Pew", y = caption) +
+  scale_x_continuous(limits = c(0,1)) + 
+  scale_y_continuous(limits = c(0,1)) + 
+  geom_abline(intercept = 0, slope = 1, linetype = "dotted") + 
+  coord_fixed()
+  return(graph)
+}  
+#when you plot the method, you need to specify which column you want to plot. 
+plot_comparison_imputation<-plot_comparison(est_table=weighted_means_long_by_group, method=weighted_means_long_by_group$weighted_means_by_group, caption= "Weighted Means With 160 Group and Imputation")
+plot_comparison_imputation
+
+
+
+## 3.3) Plot distribution of estimation-benchmark differences
+
+```{r}
+#################################### WITH NO IMPUTATION #################################
+plot_diff <- function(est_table){
+  diff_graph <- ggplot(est_table, aes(x = diff)) + 
+  geom_histogram(aes(y = (..count..)/sum(..count..)), binwidth = .025, 
+                 colour = "black", fill = "white") + 
+  theme_bw() + 
+  geom_vline(aes(xintercept = median(diff)), linetype = "longdash") + #draw a vertical line at the x-intercept that is median of the difference and make the line a long dash
+  labs(x = "absolute difference", y = "density") + 
+  scale_y_continuous(limits = c(0, 0.45)) #make the y-axis scale run from 0 to 0.45
+  return(diff_graph)
+}
+
+#first add the diff column to weighted_means_long_by_group_nonimputed
+weighted_means_long_by_group_nonimputed$diff<-abs(weighted_means_long_by_group_nonimputed$weighted_means_by_group-weighted_means_long_by_group_nonimputed$pew_estimate)
+#first add the diff column to weighted_means_long_by_group_imputed
+weighted_means_long_by_group$diff<-abs(weighted_means_long_by_group$weighted_means_by_group-weighted_means_long_by_group$pew_estimate)
+
+# plot
+
+#non_imputed
+plot_diff(weighted_means_long_by_group_nonimputed)
+
+
+
+#################################### IMPUTATION #######################################
+
+#imputed
+plot_diff(weighted_means_long_by_group)
+```
+
+\newpage
+
+# Approach 4: Model-based estimation with post-stratification
+
+## 4.1) Predict group means with simple regression model; combine with group weights to create weighted means
+
+```{r}
+#make a copy of everything because we want to put te means in for each group
+ds_copy<-ds
+library(dplyr)
+#you need to take out group_weight or it will another group_weight and get confused
+sample_counts_160_copy<-sample_counts_160%>%select(-group_weight)
+
+# for this, we will need convert everything into factors
+ds_copy <- ds_copy %>% mutate_all(funs(as.factor))
+
+# Now we will regress each survey answer on demographic characteristics and
+# use those model parameters to generate predicted probabilities for each group
+# loop through each survey answer and store each vector of pred.probs
+# in a 160 x 44 matrix 
+
+# but first, write a warning function for later to make sure 
+# that all estimates are 0 to 1 inclusive
+prob_range_warning <- function(predictions){
+  if (any(predictions < 0)) {
+    warning("some predictions less than zero")
+    } 
+  if (any(predictions > 1)) {
+    warning("some predictions more than one")
+    } 
+}
+
+#below we build our models based on each response 
+
+#we need to take our data, and our variables, for each question, they create a logistic regression model, adn they still use the group based weights, but the mean is coming from the model, you run each group for the model. We take whole data set, create a model, 
+#P(Y) means the probability that they give answer 1 to a given option in a multiple choice question. #P(Y=1)=logit (beta_0+beta_male*male...beta_30-40*(30-40)+beta_Asian*(Asian) 
+#the model is a logistic regression model that predicts whether they will answer 1 to a given question based on whether they belong to a given demographic group
+#they run a model for each question
+#they use the coefficients from the model to calculate the mean
+
+#eventually we want to write a function with a for loop, but for now we are just going to write one model to test it
+
+model1<-glm(ds_copy$MILITARY.1~ds_copy$sex + ds_copy$race +ds_copy$region+ds_copy$age_cat, family="binomial", data=ds_copy)
+summary(model1)
+names(ds_copy)
+#write a nested loop where you run teh covariates ds_copy$sex + ds_copy$race +ds_copy$region+ds_copy$age_cat on each column from 1 to 44 in data frame ds_copy, and within each iteration, calculate the mean for that column.
+
+#how to start a lesson on for loops
+for (i in 1:ncol(ds_copy[,1:44])) {
+ print(i)
+  
+}
+    
+#this for loop is making a prediction for every observation in all the data, but what we want is to run separate models on each of 160 stratified groups 
+#note when you run a regression, you should not specify taht your columns(variables) are coming from a particula data set in your regression with the $--if you do that, R will look for the column within your data et withoin your data set and do too much. 
+for (i in 1:ncol(ds_copy[,1:44])) {
+print(i)
+  model<-glm(ds_copy[, i]~sex + race +region+age_cat, family="binomial", data=ds_copy) 
+print(model$coefficients)
+
+for (j in 1:nrow(sample_counts_160_copy)) {
+  prediction<-predict(model, sample_counts_160_copy[j, 1:4], type="response")#we write 1:4 here becuase there are only four pre-treatment covariates)
+  print.data.frame(sample_counts_160_copy[j, 1:4]) #so we know what group is being printed , we type print.data.frame
+  print(prediction)
+  prediction<-sample_counts_160_copy[j, i+4]#I type i+4 because in sample copy they are in column 5 to 5 to 49 so we need to shift over 4 columns
+  }
+}
+
+
+#predictions will give you the means and then you reweight it with the weights. 
+
+
+cell_based_model_stratification <- left_join(population_counts_160, 
+            sample_counts_160_copy, 
+            by = c("sex", "region", "age_cat", "race"))
+names(cell_based_model_stratification)
+
+
+# reshape wide to long
+cell_based_model_stratification_long <- cell_based_model_stratification %>% gather(qid, mean, 
+                                         -c(sex, region, age_cat, race, group_weight),
+                                         na.rm = F)
+
+head(cell_based_model_stratification_long)
+
+
+
+# with mutate create a new column in cell_based_long called weighted mean which is the group means times group weights in the cell_based_long dataframe 
+
+cell_based_model_stratification_long <- mutate(cell_based_model_stratification_long, weighted_mean = group_weight*mean)
+head(cell_based_model_stratification_long)
+
+```
+
+```{r}
+#here is a slightly more efficient way to do this:
+#first we are going to create a new data frame called data_factor which is the ds_copy data frame with all variables mutated into factors with the functions as.factor
+#funs() provides a flexible way to generate a named list of functions for input to other functions like summarise_at(). funs() is like apply series of vunctions, you could apply multiple functions
+data_factor <- ds_copy %>% mutate_all(funs(as.factor))
+
+
+# create a character vector of the 44 question names
+# these question names can be found in the column names of the data
+relevant_questions <- colnames(ds)[!colnames(ds_copy) %in% c("sex", "age_cat", "region", "race")]
+# create container dataframe called model_predictions that is a matrix with the rows of 
+
+#populations_counts and columns with relevant_questions: Here the columns are options to the #questions and the rows are the groups (does not tell you which groups they are)
+#you need to make sure that you your population_counts_160 dataframe to have thesame categorys by depulicating with the name population_counts. Remember that this is going to write out our just age and region population_counts
+
+population_counts<-population_counts_160
+model_predictions <- as.data.frame(matrix(nrow = nrow(population_counts), 
+                                          ncol = length(relevant_questions), NA))
+colnames(model_predictions) <- relevant_questions
+#you could put in row names but you would have to 
+#1)put the factorized values of the demographic variables into characters
+#2) permute each value of all the varaibles with each other and form a single string with all 166 the possible values from the four variables, 
+#3) assign that to population_count 
+
+#3)
+#rownames(model_predictions)<-population_counts
+
+#actually relevant_questions is a string with each option for all questions 
+#they did everything not ina  nested loop but all at once
+# loop through
+for (i in relevant_questions) {
+  # get outcome (option to a question), put into outcome the ith column 
+  outcome <- data_factor[ , i]
+  # fit model
+  model <- glm(outcome ~ sex + age_cat + region + race, 
+             data = data_factor,
+             family = binomial(link = "logit"))
+  # create predicted probabilities
+  reg_predicted_values <- predict(model, newdata = population_counts, type = "response")
+  # check for errors
+  prob_range_warning(reg_predicted_values)
+  # store in container
+  model_predictions[ , i] <- reg_predicted_values
+}
+# bind demographic categories to predictions--binding the columns of the population_counts and then model_predictions
+model_wide <- bind_cols(population_counts, model_predictions)
+head(model_wide)
+```
+
+```{r}
+# reshape wide to long, gather on qid and predicted value but not everything inside -c()
+model_long <- model_wide %>% gather(qid, predicted_value, 
+                                         -c(sex, age_cat, region, race, group_weight),
+                                         na.rm = F) 
+head(model_long)
+# weight predictions and sum by qid
+model_est <- model_long %>%
+  mutate(weighted_prediction = group_weight*predicted_value) %>%
+  group_by(qid) %>%
+  summarise(model_prediction = sum(weighted_prediction, na.rm = T)) 
+head(model_est)
+# merge with pew benchmarks
+pew_model_est <- inner_join(pew, model_est, by = c("qid"))
+head(pew)
+head(model_est)
+head(pew_model_est)
+```
+
+
+
+## 4.2) Plot estimated means against benchmarks
+
+```{r}
+plot_comparison <- function(est_table, method, caption){
+  graph <-  ggplot(est_table, 
+                   aes(x = pew_estimate, y = method)) + 
+  geom_point() + 
+  labs(x = "Estimates from Pew", y = caption) +
+  scale_x_continuous(limits = c(0,1)) + 
+  scale_y_continuous(limits = c(0,1)) + 
+  geom_abline(intercept = 0, slope = 1, linetype = "dotted") + 
+  coord_fixed()
+  return(graph)
+}  
+#when you plot the method, you need to specify which column you want to plot. 
+plot_comparison_imputation<-plot_comparison(est_table=weighted_means_long_by_group, method=weighted_means_long_by_group$weighted_means_by_group, caption= "Weighted Means With 160 Group and Imputation")
+plot_comparison_imputation
+
+#their way of doing this
+
+
+plot_comparison(est_table = pew_model_est,
+                method = pew_model_est$model_prediction,
+                caption = "Model-based predicted values") 
+```
+
+## 4.3) Plot distribution of estimation-benchmark differences 
+
+```{r}
+#calculate difference
+pew_model_est$diff <- abs(pew_model_est$model_prediction - pew_model_est$pew_estimate)
+#plot
+plot_diff(pew_model_est)
+```
+
+```
+
+
+\newpage
+
+# Compare distribution of differences across methods and questions
+
+Which questions worked well and which didn't? Which methods worked well for which questions?
+
+```{r}
+# put all differences into one table . Take all the differences out of each table and join them into an object called all_diff
+
+#need to change their data frame names to the corresponding data frames
+all_diff <- inner_join(mean_est, simple_cell_est, by = "qid") %>%
+           select(qid, diff_mean = diff.x, diff_simple_cell = diff.y) %>%
+              inner_join(., cell_based_est, by = "qid") %>%
+              select(qid, diff_mean, diff_simple_cell, diff_cell = diff) %>%
+              inner_join(., cell_est_imputed, by = "qid") %>%
+              select(qid, diff_mean, diff_simple_cell, diff_cell, diff_cell_imputed = diff) %>%
+                  inner_join(., pew_model_est, by = "qid") %>%
+                  select(qid, diff_mean, diff_simple_cell, diff_cell, diff_cell_imputed, diff_model = diff)
+# summarize
+summary(all_diff, digits = 2)
+# calculate MSE, -1 one refers tot he last column which is the average difference. Give the column means froma pplying all dif to the last column, with two decimal places the function of x^2. In sum, this gives you the square of diff_model (the modal based post stratification), which is the mean square error:
+colMeans(apply(all_diff[ ,-1], 2, FUN = function(x){x^2}))
+# calculate average difference across all methods for each question. Create a new column called avg_diff which you create by applying the mean Function to all but the last column (which is the model differences)
+all_diff$avg_diff <- apply(all_diff[ ,-1], 1, FUN = mean)
+#subset to only the qid adn avg-diff 
+all_diff[,c("qid", "avg_diff")]
+
+```
+
+\newpage
+
+# Optional Extension -- Approach 5: Multilevel-Model-based estimation with post-stratification (MRP)
+
+### 5.1) Predict group means with multi-level regression model; combine with group weights to create weighted means
+
+```{r}
+## if using Bayesian estimation for multi-level model, you will need to load rstanarm
+## note that Bayesian estimation is more computationally intensive/takes longer
+#install.packages("rstanarm")
+library(rstanarm)  
+# create container, an empty vector of all teh stratified group combinations (row) by relevant questions (columns)
+mrp_model_predictions <- as.data.frame(matrix(nrow = nrow(population_counts), 
+                                          ncol = length(relevant_questions), NA))
+colnames(mrp_model_predictions) <- relevant_questions
+# loop through model fitting and prediction
+#you need to redefine data as ds because tht is what you prefer to call it.
+for (i in relevant_questions) {
+  outcome <- data_factor[ , i]
+  # fit -- note that this is using default priors
+  # nested the model name in "capture.out" to silently fit
+  #instead of printing a bunch of stuff to the terminal capture.output does not show it. 1 is the random effects term and whatever is after | is the age_cat and race and region, but they don't do it for sex because that is binary 
+  output <- capture.output(multilevel_model <-
+                          glmer(outcome ~ sex + (1|age_cat) + (1|race) +
+                          (1|region), data = ds, family = binomial(link = "logit")))
+  # # predict using the multilevel model for each 160 stratified combination of the sex, race, region and age
+  mrp_predictions <- predict(multilevel_model,
+                                       newdata = population_counts, type = "response")
+  # # errors? Are my probabilities within 0 and 1
+  prob_range_warning(mrp_predictions)
+  # # feed into dataframe
+  mrp_model_predictions[ , i] <- mrp_predictions
+}
+mrp_model_predictions
+
+##################### Bayesian version with STAN #################################################
+#STAN is used to specify a Bayesian statistical model. R package for Bayesian model. 
+library(rstanarm)
+#This model is the same except htey add a , adapt_delta=0.99 which changes the acceptable threshold for statistical signficiance to 0.01
+for (i in relevant_questions[1:2]) {
+outcome <- data_factor[ , i]
+# fit -- note that this is using default priors
+# nested the model name in "capture.out" to silently fit
+output <- capture.output(multilevel_model <- stan_glmer(outcome ~ sex + (1|age_cat) + (1|race) +
+(1|region), data = ds, family = binomial(link = "logit"), adapt_delta = 0.99))
+# predict: instead of using predict you have to use posterior-linpred because this Extract the posterior draws of the linear predictor, possibly transformed by the inverse-link function
+mrp_predictions <- posterior_linpred(multilevel_model,
+newdata = population_counts, type = "response")
+mrp_predictions_invlog <- exp(mrp_predictions)/(1 + exp(mrp_predictions))
+mrp_pred2 <- unname(apply(mrp_predictions_invlog, 2, mean))
+#apply the mean funtion to mrp_predictions_invlog and then remove the name for something and store it in mrp_pred2
+# errors? See if the value is not between 0 and 1
+prob_range_warning(mrp_pred2)
+# feed into dataframe
+mrp_model_predictions[ , i] <- mrp_pred2
+}
+
+
+#now they return to non Bayesian version
+# bind to demographic categories and group weights--they creating a new dataframe that binds hte population counts adn the mrp_model_predictions (which can either be from the ordinary mrp or the bayesian mrp)
+mrp_wide <- bind_cols(population_counts, mrp_model_predictions)
+head(mrp_wide)
+# reshape wide to long
+mrp_long <- mrp_wide %>% gather(qid, predicted_value, 
+                                         -c(sex, age_cat, region, race, group_weight),
+                                         na.rm = F) 
+head(mrp_long)
+# weigh, sum by qid, match with pew. Create a new weighted predictin based on group_weight and predicted_value
+mrp_est <- mrp_long %>%
+  mutate(mrp_weighted_prediction = group_weight*predicted_value) %>%
+  group_by(qid) %>%
+  summarise(mrp_prediction = sum(mrp_weighted_prediction, na.rm = T)) 
+head(mrp_est)
+# merge with pew benchmarks
+pew_mrp_est <- inner_join(pew, mrp_est, by = c("qid"))
+pew_mrp_est
+```
+
+### 5.2) Plot estimated means against benchmarks
+
+```{r}
+plot_comparison(est_table = pew_mrp_est,
+                method = pew_mrp_est$mrp_prediction,
+                caption = "MRP predicted values")
+
+
+```
+
+### 5.3) Plot distribution of estimation-benchmark differences
+
+```{r}
+#calculate difference
+pew_mrp_est$diff <- abs(pew_mrp_est$mrp_prediction - pew_mrp_est$pew_estimate)
+#plot
+plot_diff(pew_mrp_est)
+
+```
+
+### 5.4) Compare differences from MRP with other methods
+
+```{r}
+#need to change names of different means to what I have in my data analysis
+all_diff <- inner_join(all_diff, pew_mrp_est, by = "qid") %>%
+                    select(qid, diff_mean, diff_simple_cell, diff_cell, diff_cell_imputed, diff_model, diff_mrp = diff)
+# summarize
+summary(all_diff, digits = 2)
+# calculate MSE 
+colMeans(apply(all_diff[ ,-1], 2, FUN = function(x){x^2}))
+```
+
+
+
