@@ -1,0 +1,921 @@
+---
+title: "From Illegal to Undocumented"
+output: html_document
+---
+#install.packages("zoo")
+
+
+
+
+mydata = read.csv("survey_experiment_data_prepared_for_analysis_expanded.csv")
+#remove duplicates
+library(dplyr)
+mydata_unique<-mydata %>% distinct(Put.in.your.MTurk.ID.to.consent., .keep_all = TRUE)
+dim(mydata_unique)
+mydata<-mydata_unique
+
+#mydata<-data
+mydata$birthyear
+mydata$birthyear<-as.numeric(mydata$birthyear)
+mydata$age<-(2019-mydata$birthyear)
+mydata$auth
+str(mydata$white)
+
+#recode and subset data
+
+mydata$female<-as.numeric(mydata$female)
+mydata$hispanic<-as.numeric(mydata$hispanic)
+mydata$white<-as.numeric(mydata$white)
+mydata$born_usa<-as.numeric(mydata$born_usa)
+mydata$region<-as.numeric(mydata$region0)
+mydata$income<-as.numeric(mydata$income)
+mydata$lnincome<-log(mydata$income)
+mydata1<-mydata
+mydata1=subset(mydata, attention==1)
+
+
+
+#obtain descriptive statistics my data
+install.packages("describe")
+library(psych)
+summary(mydata)
+
+describe(mydata)
+
+summary(mydata1$regionx)
+
+sd(mydata1$income)
+sd(mydata1$educ)
+mydata_NA_omit<-na.omit(mydata1)
+sd(mydata_NA_omit$letin)
+sd(mydata$income)
+
+sd(mydata1$income)
+sd(mydata1$letin)
+
+
+#run regressions;
+#install.packages("mlogit")
+library(mlogit)
+require(MASS)#for ordered logic
+
+#install.packages("ordinal")
+library(ordinal)
+#to run ologit I need to convert all my outcome variables to factors
+mydata1$letin<-as.factor(mydata1$letin)
+mydata1$immimp<-as.factor(mydata1$immimp)
+mydata1$immrights<-as.factor(mydata1$immrights)
+mydata1$immfavor<-as.factor(mydata1$immfavor)
+mydata1$immlang<-as.factor(mydata1$immlang)
+mydata1$immcrime<-as.factor(mydata1$immcrime)
+mydata1$immideas<-as.factor(mydata1$immideas)
+mydata1$immjob<-as.factor(mydata1$immjob)
+mydata1$immgrowth<-as.factor(mydata1$immgrowth)
+mydata1$immunit<-as.factor(mydata1$immunit)
+
+mydata1$letin_c<-as.numeric(mydata1$letin)
+mydata1$immimp_c<-as.numeric(mydata1$immimp)
+mydata1$immrights_c<-as.numeric(mydata1$immrights)
+mydata1$immfavor_c<-as.numeric(mydata1$immfavor)
+mydata1$immlang_c<-as.numeric(mydata1$immlang)
+mydata1$immcrime_c<-as.numeric(mydata1$immcrime)
+mydata1$immideas_c<-as.numeric(mydata1$immideas)
+mydata1$immjob_c<-as.numeric(mydata1$immjob)
+mydata1$immgrowth_c<-as.numeric(mydata1$immgrowth)
+mydata1$immunit_c<-as.numeric(mydata1$immunit)
+
+
+mydata1$lnincome<-log(mydata1$income)
+mydata1$birthyear<-as.numeric(mydata1$birthyear)
+mydata1$age<-(2019-mydata1$birthyear)
+
+
+#here is the code for the weights which I sent you earlier in case you want to do the analysis with weights
+
+#another way to dummify the varaibles
+
+mydata1$republican <- ifelse(mydata1$party == "1", 1, 0)
+
+mydata1$independent <- ifelse(mydata1$party == "0", 1, 0)
+mydata1$democrat <- ifelse(mydata1$party == "-1", 1, 0)
+
+mydata1$south<- ifelse(mydata1$region0 == "south", 1, 0)
+mydata1$northeast<- ifelse(mydata1$region0 == "northeast", 1, 0)
+mydata1$west<- ifelse(mydata1$region0 == "west", 1, 0)
+mydata1$midwest<- ifelse(mydata1$region0 == "midwest", 1, 0)
+
+
+sapply(mydata2, function(x) sum(is.na(x)))
+
+
+#find out why my imputation model is not imputing immimp
+
+imputeVars <- c("age", "educ","lnincome", "undocumented", "female", "hispanic", "white", "region",  "born_usa", "attention", "party", "media", "polview", "auth", "ethnocentrism", "letin", "letin_c", "immimp", "immimp_c", "immrights", "immfavor", "immlang", "immrights_c", "immfavor_c", "immlang_c", "immcrime", "immideas", "immjob", "immgrowth", "immunit", "immcrime_c", "immideas_c", "immjob_c", "immgrowth_c", "immunit_c", "transport",  "Timestamp")
+
+#if you want to impute dummy vaeriables derived from a multilevel ordinal
+#variable you need to remove the multilevel ordinal variable
+imputeVars <- c("Put.in.your.MTurk.ID.to.consent.", "age", "educ","lnincome", "undocumented", "female", "hispanic", "white", "region0",  "born_usa", "attention", "media", "polview", "auth", "ethnocentrism", "letin", "letin_c", "immimp", "immimp_c", "immrights", "immfavor", "immlang", "immrights_c", "immfavor_c", "immlang_c", "immcrime", "immideas", "immjob", "immgrowth", "immunit", "immcrime_c", "immideas_c", "immjob_c", "immgrowth_c", "immunit_c", "transport",  "Timestamp", "democrat", "independent", "republican")
+imputeVars<-as.data.frame(imputeVars)
+#you can do an imputation here to make sure the data is complete but you can also do this later after you figure out the ohter code
+#ask Valerie why midas touch is not imputing the missing data for immimp but cart can
+mydata1<-as.data.frame(mydata1)
+
+#create another data set with which you can multiply impute the don't know answers for the following questions:
+#immcrime", "immideas", "immjob", "immgrowth", "immunit
+
+mydata1$immcrime1<-mydata1$immcrime
+mydata1$immcrime1<-revalue(mydata1$immcrime, c("0"=NA))
+mydata1$immideas1<-mydata1$immideas
+mydata1$immideas1<-revalue(mydata1$immideas, c("0"=NA))
+mydata1$immjob1<-mydata1$immjob
+mydata1$immjob1<-revalue(mydata1$immjob, c("0"=NA))
+mydata1$immgrowth1<-mydata1$immgrowth
+mydata1$immgrowth1<-revalue(mydata1$immgrowth, c("0"=NA))
+mydata1$immunit1<-mydata1$immunit
+mydata1$immunit1<-revalue(mydata1$immunit, c("0"=NA))
+imputeVars <- c("Put.in.your.MTurk.ID.to.consent.", "age", "educ","lnincome", "undocumented", "female", "hispanic", "white", "region0",  "born_usa", "attention", "media", "polview", "auth", "ethnocentrism", "letin", "letin_c", "immimp", "immimp_c", "immrights", "immfavor", "immlang", "immrights_c", "immfavor_c", "immlang_c", "immcrime1", "immideas1", "immjob1", "immgrowth1", "immunit1", "transport",  "Timestamp", "democrat", "independent", "republican")
+
+
+
+library(mice)
+imp2 <- mice(mydata1[,imputeVars], method = "midastouch", m = 40, maxit = 10, seed = 123)
+
+
+
+
+
+
+
+#imp <- mice(mydata1[,only], method = "midastouch", m = 40, maxit = 10, seed = 123)
+library(mice)
+
+
+mydata2<-complete(imp2, action = "all"))
+
+mydata2<-mydata2 %>% distinct(Put.in.your.MTurk.ID.to.consent., .keep_all = TRUE)
+
+mydata2$letin_c<-as.numeric(mydata2$letin)
+mydata2$immimp_c<-as.numeric(mydata2$immimp)
+mydata2$immrights_c<-as.numeric(mydata2$immrights)
+mydata2$immfavor_c<-as.numeric(mydata2$immfavor)
+mydata2$immlang_c<-as.numeric(mydata2$immlang)
+mydata2$immcrime_c<-as.numeric(mydata2$immcrime)
+mydata2$immideas_c<-as.numeric(mydata2$immideas)
+mydata2$immjob_c<-as.numeric(mydata2$immjob)
+mydata2$immgrowth_c<-as.numeric(mydata2$immgrowth)
+mydata2$immunit_c<-as.numeric(mydata2$immunit)
+
+
+
+#here is the code for the weights which I sent you earlier in case you want to do the analysis with weights
+
+#another way to dummify the varaibles
+
+
+
+mydata2$south<- ifelse(mydata2$region0 == "south", 1, 0)
+mydata2$northeast<- ifelse(mydata2$region0 == "northeast", 1, 0)
+mydata2$west<- ifelse(mydata2$region0 == "west", 1, 0)
+mydata2$midwest<- ifelse(mydata2$region0 == "midwest", 1, 0)
+#need to create dummy varaibles from a categorical variable
+
+#weighting
+assign_age_category <- function(age) {
+  if (is.na(age)) {
+    return(NA)
+  } else if (age < 5) {
+    return(1)
+  } else if (age >= 5 & age <= 9) {
+    return(2)
+  } else if (age >= 10 & age <= 14) {
+    return(3)
+  } else if (age >= 15 & age <= 19) {
+    return(4)
+  } else if (age >= 20 & age <= 24) {
+    return(5)
+  } else if (age >= 25 & age <= 29) {
+    return(6)
+  } else if (age >= 30 & age <= 34) {
+    return(7)
+  } else if (age >= 35 & age <= 39) {
+    return(8)
+  } else if (age >= 40 & age <= 44) {
+    return(9)
+  } else if (age >= 45 & age <= 49) {
+    return(10)
+  } else if (age >= 50 & age <= 54) {
+    return(11)
+  } else if (age >= 55 & age <= 59) {
+    return(12)
+  } else if (age >= 60 & age <= 64) {
+    return(13)
+  } else if (age >= 65 & age <= 69) {
+    return(14)
+  } else if (age >= 70 & age <= 74) {
+    return(15)
+  } else if (age >= 75 & age <= 79) {
+    return(16)
+  } else if (age >= 80 & age <= 84) {
+    return(17)
+  } else if (age >= 85 & age <= 89) {
+    return(18)
+  } else if (age >= 90 & age <= 95) {
+    return(19)
+  } else if (age >= 95 & age <= 99) {
+    return(20)
+  } else {
+    return(21)
+  }
+}
+mydata2$age_categories <- sapply(mydata2$age, assign_age_category)
+
+assign_sex_variable <- function(female) {
+  if (is.na(female)) {
+    return(NA)
+  } else if (tolower(female) == "1") {
+    return(1)
+  } else {
+    return(0)
+  }
+}
+mydata2$female <- sapply(mydata2$female, assign_sex_variable)
+library(openxlsx)
+library(readr)
+library(utils)
+weight <- read_csv("Documents/Gun Safety Study/age-sex_weight_in_the_US_2020.csv")
+
+weight<-age_sex_weight_in_the_US_2020
+weight$age_categories<-weight$Age
+weight$female<-weight$Sex
+
+mydata3 <- merge(mydata2, weight, by = c("age_categories", "female"))
+
+library(survey)
+survey_design=svydesign(~1,data=mydata3,weights=~weight)
+summary(survey_design)
+
+#treatement group: undocumented
+#letin: is one DV
+library(dplyr)
+
+mydata1$undocumented
+mydata$letin
+
+#check if data is balanced for observations in treatment and control groups with respect to all covariates and randomization worked
+
+library(plm)
+library(sandwich)
+library(lmtest)
+library(broom)
+library(readxl)
+library(writexl)
+library(zoo)
+library(tidyverse)
+library(broom)
+
+library(tidyverse)
+install.packages("vtable")
+library(vtable)
+
+
+
+
+
+mydata1$log_income<-log(mydata1$income)
+
+#rescale all hte variables into a composite and so they all go in same direction
+#letin higher means more positive views
+#these are all negative
+
+
+myvars <- c("letin_c", "immimp_c", "immrights_proimm_c", "immfavor_proimm_c", "immlang_proimm_c", "immcrime_proimm_c", "immideas_c", "immjob_proimm_c", "immgrowth_c", "immunit_proimm_c")
+
+scale_values<-function(x){(x-min(x))/(max(x)-min(x))}
+scale_values(mydata2[['letin_c']])
+
+#create a varialbe called a that applies the scales_value function to every item in the myvars vector that is also in mydata2
+#this will create a new vector that is every variable scalled
+aa = sapply(myvars, function(x) scale_values(mydata2[[x]]))
+#assign the column names of aa to a vector called aa
+namesaa = colnames(aa)
+#create a new vector called namesaa1 which contains the name of each variable with a _aa after it to indicate a recalled variable
+namesaa1 = paste(namesaa,"_aa",sep="")
+#assign the items in namesaa1 to the columnnames o aa
+
+colnames(aa) = namesaa1
+#bind together the aa vector and my data2
+mydata3<-cbind(aa,mydata2)
+
+mydata3$composite<-(mydata3$letin_c_aa+mydata3$immimp_c_aa+mydata3$immrights_proimm_c_aa+mydata3$immfavor_proimm_c_aa+mydata3$immlang_proimm_c_aa+mydata3$immcrime_proimm_c_aa+mydata3$immideas_c_aa+mydata3$immjob_proimm_c_aa+mydata3$immgrowth_c_aa+mydata3$immunit_proimm_c_aa)
+
+View(mydata2)
+sum(mydata2$letin_c)
+
+
+
+#this is for the coding where don't know is 0
+mydata2$immfavor_proimm<-revalue(mydata2$immfavor, c("-2"="5", "-1"="4", "0"="3", "1"="2", "2"="1"))
+mydata2$immrights_proimm<-revalue(mydata2$immrights,  c("-2"="5", "-1"="4", "0"="3", "1"="2", "2"="1"))
+mydata2$immlang_proimm<-revalue(mydata2$immlang,  c("-2"="5", "-1"="4", "0"="3", "1"="2", "2"="1"))
+mydata2$immcrime_proimm<-revalue(mydata2$immcrime,  c("-2"="5", "-1"="4", "0"="3", "1"="2", "2"="1"))
+mydata2$immjob_proimm<-revalue(mydata2$immjob,  c("-2"="5", "-1"="4", "0"="3", "1"="2", "2"="1"))
+mydata2$immunit_proimm<-revalue(mydata2$immunit, c("2"="5", "1"="4", "0"="3", "-1"="2", "-2"="1"))
+mydata2$letin_proimm<-revalue(mydata2$letin, c("2"="5", "1"="4", "0"="3", "-1"="2", "-2"="1"))
+mydata2$immideas_proimm<-revalue(mydata2$immideas, c("2"="5", "1"="4", "0"="3", "-1"="2", "-2"="1"))
+mydata2$immgrowth_proimm<-revalue(mydata2$immgrowth, c("2"="5", "1"="4", "0"="3", "-1"="2", "-2"="1"))
+#now the above are all coded in the correct direction
+
+
+
+#make sure all factors are ordered in same direction:
+mydata2$letin_proimm<-ordered(mydata2$letin_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immrights_proimm<-ordered(mydata2$immrights_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immfavor_proimm<-ordered(mydata2$immrights_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immlang_proimm<-ordered(mydata2$immlang_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immcrime_proimm<-ordered(mydata2$immcrime_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immideas_proimm<-ordered(mydata2$immideas_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immjob_proimm<-ordered(mydata2$immjob_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immgrowth_proimm<-ordered(mydata2$immgrowth_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immunit_proimm<-ordered(mydata2$immunit_proimm, levels = c("1", "2", "3", "4", "5"))
+##Here are the repeated Turk IDs.
+## *everything* in the analysis is downstream of participant inclusion criteria!
+    turkID_table <- 
+        table(raw$Put.in.your.MTurk.ID.to.consent.)
+duplicate_tid <- turkID_table[which(turkID_table!=1)]
+
+## Timestamp collisions. Timestamp is not a viable proxy for id.
+time_collisions <-
+    table(raw$Timestamp)[which(table(raw$Timestamp)!=1)]
+
+
+mydata2$letin_proimm<-ordered(mydata2$letin_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immrights_proimm<-ordered(mydata2$immrights_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immfavor_proimm<-ordered(mydata2$immrights_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immlang_proimm<-ordered(mydata2$immlang_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immcrime_proimm<-ordered(mydata2$immcrime_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immideas_proimm<-ordered(mydata2$immideas_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immjob_proimm<-ordered(mydata2$immjob_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immgrowth_proimm<-ordered(mydata2$immgrowth_proimm, levels = c("1", "2", "3", "4", "5"))
+mydata2$immunit_proimm<-ordered(mydata2$immunit_proimm, levels = c("1", "2", "3", "4", "5"))
+
+
+library(tidyverse)
+pivot_demo<-mydata%>%
+select(Mturk_ID=Put.in.your.MTurk.ID.to.consent., undocumented, letin, immrights, immfavor, immlang, immcrime, immideas, immjob, immgrowth, immunit)%>%
+pivot_longer(c(letin, immrights, immfavor, immlang, immcrime, immideas, immjob, immgrowth, immunit),names_to= "response")
+mydatax<-pivot_demo
+#mydata2$composite<-sapply(myvars_aa, function(x){sum(mydata2[[x]])})
+mydata2$composite<-rowSums(mydata2[,myvars_aa])
+library(ltm)
+cronbachtestdata <- mydata3[myvars]
+cronbach.alpha(cronbachtestdata, standardized = FALSE, CI = FALSE, 
+    probs = c(0.025, 0.975), B = 1000, na.rm = TRUE)
+#why does this tell me that all htese latter arguments are false: CI = FALSE:
+#probs = c(0.025, 0.975), B = 1000, na.rm = TRUE)?)
+cronbach.alpha(cronbachtestdata, standardized = FALSE)
+cronbach.alpha(cronbachtestdata, standardized = TRUE)
+
+names(mydata2)
+
+#install.packages("MASS")
+library(MASS)
+library(ordinal)
+
+
+
+#first do analysis with ordinal regression
+
+
+
+#be sure to clarify what the different levels of the responses are. 
+#do a specific example
+
+model1<-lm(letin_c~ undocumented, data=mydata1)
+model1
+summary(model1)
+
+
+
+model1o<-clm(letin~ undocumented, data=mydata2)
+summary(model1o)
+exp(coef(model1o))
+model1o_or<- exp(confint(model1o))
+model1o_or
+
+
+
+model2_letin<-lm(letin_c~ undocumented + female + hispanic +white  +age + northeast+south+midwest + lnincome + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata2)
+model2_letin
+summary(model2_letin)
+
+model2o_letin<-clm(letin~ undocumented + female + hispanic +white  +age + northeast+south+midwest + lnincome + educ +born_usa + democrat + republican + media + polview + auth + ethnocentrism, data=mydata2)
+model2o_letin
+summary(model2o_letin)
+exp(coef(model2o_letin))
+model2o_cf<- exp(confint(model2o_letin))
+model2o_cf
+#test the proportional odds assumption with Brant test
+install.packages("MASS")
+library(MASS)
+model2o_letin<-clm(letin~ undocumented + female + hispanic +white  +age + northeast+south+midwest + lnincome + educ +born_usa + democrat + republican + media + polview + auth + ethnocentrism,  Hess=TRUE, data=mydata2)
+model2o_letin
+#brant package from MASS does not work so install this:
+#install.packages("gofcat")
+library(gofcat)
+#brant.test(model2o_letin, global= FALSE, call = FALSE)
+#brant(model2o_letin)
+
+#do the regession by splitting date to training and testing
+ind<-sample(2, nrow(mydata2), replace=TRUE, prob=c(0.8, 0.2))
+            train<-mydata2[ind==1,]
+              test<-mydata2[ind==2,]
+              
+#alternative approach--polr which requires you to set Hess=TRUE to get standard errors
+              model<-polr(letin~undocumented, data=mydata2, Hess=TRUE)
+summary(model)        
+#to get p values type
+(ctable<-coef(summary(model)))
+p<-pnorm(abs(ctable[,"t value"]), lower.tail=FALSE)*2
+         (ctable<-cbind(ctable, "p value"=p))
+#make predictin with model coefficients for first five obesrvations
+pred<-predict(model, train[1:5,], type='prob')
+#to reduce the digits
+print(pred, digits=3)
+#with these we can write down equations
+#if you want all variables in data set in a model you can just type . after ~ and if you want to subtract variables you just type - and then the variable name after the .
+#to generate a confusion matrix and error for trainign data type
+(tab<-table(pred,train$letin))
+1-sum(diag(tab))/sum(tab)
+#to generate a confusion matrix and error for trainign data type
+pred1<-predict(model, test)
+tab1<-table(pred1, test$letin)
+#get misclassification error:
+1-sum(diag(tab))/sum(tab)
+#not much difference between misclassifciation error in testing and training data set, you will find ma
+
+model3o_letin<-clm(letin~ polview*undocumented + female + hispanic +white  +age + northeast+south+midwest + lnincome + educ +born_usa + democrat+republican + media  + auth + ethnocentrism, data=mydata2)
+model3o_letin
+summary(model3o_letin)
+
+
+
+summary(model3o_letin)
+exp(coef(model3o_letin))
+model3o_cf<- exp(confint(model3o_letin))
+model3o_cf
+
+library(jtools)
+export_summs(MODEL1, MODEL2, MODEL3)
+library(margins)
+marginsmodel3o_letin<-margins(model3o_letin)
+#to get margins at particular values you cacn type
+logitat<-margins(model3o_letin, at=list(female==0, hispanic=0))
+
+
+
+
+
+#run model with squared term
+model3o_letin<-lm(letin_c~ undocumented*polviewsq + female + hispanic +white  +age + northeast+south+midwest + lnincome + educ +born_usa + democrat+republican + media  + auth + ethnocentrism, data=mydata2)
+model3o_letin
+summary(model3o_letin)
+
+library(sjPlot)
+library(sjmisc)
+library(ggplot2)
+data(efc)
+theme_set(theme_sjplot())
+
+a<-plot_model(model3o_letin, type = "pred", terms = c("polview", "undocumented"))
+print(a)
+#those who hold more conservative political views are more likely to say the government should let fewer undocumented immigrants than illegal immigrants
+
+
+install.packages("ggeffects")
+library(ggeffects)
+library(ggplot2)
+
+result <- ggpredict(model3o_letin, c("polview", "undocumented"))
+
+plot(result)+ labs(
+    x="political conservativism",
+    y="how many immigrants to let in",
+    title="Figure 7: Predicted Probability of how many immigrants prefer to let in",
+    colour="undocumented")
+
+
+hypothesis_test(result)
+
+
+#plot predicted probabilities from margins
+a<-plot_model((model3o_letin), type = "int", terms = "undocumented", "polview")
+print(a)
+
+
+a<-plot_model(model3o_letin, type = "pred", terms = c("polview", "undocumented"), axis.labels = c(polview="conservative ideology", letin="support for letting more immigrants in"))
+            
+model3o_letin<-clm(letin~ undocumented*ethnocentrism + female + hispanic +white  +age + northeast+south+midwest + lnincome + educ +born_usa + democrat+republican + media + polview + auth , data=mydata2)
+model3o_letin
+summary(model3o_letin)
+#interaction between ethnocentrism and undocumented
+model3o_letin<-clm(letin~ undocumented*auth + female + hispanic +white  +age + northeast+south+midwest + lnincome + educ +born_usa + democrat+republican  + media + polview  + ethnocentrism, data=mydata2)
+model3o_letin
+summary(model3o_letin)
+#ns
+
+model3o_letin<-clm(letin~ undocumented*media + female + hispanic +white  +age + northeast+south+midwest + lnincome + educ +born_usa + democrat+republican   + polview  + ethnocentrism, data=mydata2)
+model3o_letin
+summary(model3o_letin)
+#ns
+
+
+model3o_letin<-clm(letin~ undocumented*independent + female + hispanic +white  +age + northeast+south+midwest + lnincome + educ +born_usa  + polview  + ethnocentrism, data=mydata2)
+model3o_letin
+summary(model3o_letin)
+#ns
+
+
+
+
+#immigrants improve society
+
+model1o<-clm(immimp~ undocumented, data=mydata2)
+
+summary(model1o)
+exp(coef(model1o))
+model1o_or<- exp(confint(model1o))
+model1o_or
+
+
+
+model1o_immimp<-clm(immimp~ undocumented + female + hispanic +white  +age + region0 + lnincome + educ + born_usa + democrat+republican + media + polview + auth + ethnocentrism, data=mydata2)
+
+#this reveals that using hte word undocumented (rather than illegal) is associated with wanting slightly fewer immigrants, and this is higher the older, the more republican/conservative/ethnocentric the participant is, 
+summary(model1o_immimp)
+
+
+rep<-replications(letin~ undocumented + female + hispanic +white  +birthyear + log_income + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata)
+rep
+
+rep<-replications(letin~undocumented)
+aov(letin~undocumented, data=mydata)
+
+install.packages("MASS")
+library(MASS)
+model1o<-polr(letin~undocumented, data=mydata1)
+model1o
+summary(model1o)
+#not significant
+
+
+
+model2o<-clm(immimp~ undocumented + female + hispanic +white + region+birthyear + log_income + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata1)
+model2o
+summary(model2o)
+#not significant
+model2<-clm(immimp~undocumented, data=mydata1)
+summary(model2)
+
+
+#skip immigrant improvement
+
+
+
+model1o_immrights<-clm(immrights~undocumented, data=mydata1)
+summary(model1o)
+
+summary(model1o_immrights)
+exp(coef(model1o_immrights))
+model1o_cf<- exp(confint(model1o_immrights))
+model1o_cf
+
+
+model2o_immrights<-clm(immrights~ undocumented + female +northeast+south+midwest+ hispanic +white  +age + lnincome + educ +born_usa + democrat+republican + media + polview + auth + ethnocentrism, data=mydata2)
+summary(model2o_immrights)
+
+summary(model2o_immrights)
+exp(coef(model2o_immrights))
+model2o_cf<- exp(confint(model2o_immrights))
+model2o_cf
+
+
+#no interaction effects of all hypohtesized variab les
+
+
+model1o_immfavor<-clm(immfavor~undocumented, data=mydata1)
+summary(model1o_immfavor)
+
+summary(model1o_immfavor)
+exp(coef(model1o_immfavor))
+model1o_cf<- exp(confint(model1o_immfavor))
+model1o_cf
+
+
+
+
+model2o_immfavor<-clm(immfavor~ undocumented + female + age+ hispanic +white +  northeast+south+midwest + lnincome + educ +born_usa + republican+democrat + media + polview + auth + ethnocentrism, data=mydata2)
+summary(model2o_immfavor)
+exp(coef(model2o_immfavor))
+model2o_cf<- exp(confint(model2o_immfavor))
+model2o_cf
+
+
+
+model3o_immfavor<-clm(immfavor~ undocumented*ethnocentrism + female + age+ hispanic +white +  northeast+south+midwest + lnincome + educ +born_usa + media+democrat +republican+ polview  + auth, data=mydata2)
+summary(model2o_immfavor)
+exp(coef(model2o_immfavor))
+model2o_cf<- exp(confint(model2o_immfavor))
+model2o_cf
+library(sjPlot)
+library(sjmisc)
+library(ggplot)
+class(mydata2$immfavor)
+class(mydata2$ethnocentrism)
+
+model3o_immlang<-clm(immlang~ undocumented*ethnocentrism + female + age+ hispanic +white +  northeast+south+midwest + lnincome + educ +born_usa + media+democrat +republican+ polview  + auth, data=mydata2)
+summary(model3o_immlang)
+exp(coef(model3o_immlang))
+model2o_cf<- exp(confint(model3o_immlang))
+model2o_cf
+
+
+a<-plot_model(model3o_immfavor, type="int", title="Fig. 9: predicted probabilities of whether immigrants should receive no favors")
+
+model3o_immfavor<-polr(immfavor~ ethnocentrism*undocumented,  data=mydata2)
+
+newdat <- data.frame(
+  undocumented<-mydata2$undocumented,
+  immfavor<-mydata2$immfavor,
+  ethnocentrism<-mydata2$ethnocentrism)
+newdat <- cbind(newdat, predict(model3o_immfavor, newdat, type = "probs"))
+
+
+model1o_immlang<<-clm(immlang~undocumented, data=mydata2)
+summary(model1o_immlang)
+exp(coef(model1o_immlang))
+model1o_cf<- exp(confint(model1o_immlang))
+model1o_cf
+
+
+model2o_immlang<-clm(immlang~ undocumented + female + hispanic +white + age +northeast+south+midwest + lnincome + educ +born_usa + democrat+republican + media + polview + auth + ethnocentrism, data=mydata2)
+summary(model2o_immlang)
+
+exp(coef(model2o_immlang))
+model2o_cf<- exp(confint(model2o_immlang))
+model2o_cf
+
+model2o_immlang<-clm(immlang~ undocumented*ethnocentrism + female + hispanic +white + age +northeast+south+midwest + lnincome + educ +born_usa + democrat+republican + media + polview + auth + ethnocentrism, data=mydata2)
+summary(model2o_immlang)
+
+exp(coef(model2o_immlang))
+model2o_cf<- exp(confint(model2o_immlang))
+model2o_cf
+
+#no significant interactions
+
+
+#immcrime
+model6<-clm(immcrime~undocumented, data=mydata2)
+summary(model6)
+a<-margins(model6)
+print(a)
+coefplot(model6, intercept=FALSE)
+library(marginaleffects)
+
+exp(coef(model6))
+model2o_cf<- exp(confint(model6))
+model2o_cf
+
+
+
+model6o_immcrime<-clm(immcrime~ undocumented + female + hispanic +white + age +northeast+south+midwest + lnincome + educ +born_usa + democrat+republican + media + polview + auth + ethnocentrism, data=mydata2)
+summary(model6o_immcrime)
+#if you use the word undoucmented and add all these covariates 
+
+exp(coef(model6o_immcrime))
+model2o_cf<- exp(confint(model6o_immcrime))
+model2o_cf
+
+model7<-clm(immideas~undocumented, data=mydata2)
+summary(model7)
+exp(coef(model7))
+model2o_cf<- exp(confint(model7))
+model2o_cf
+
+
+model7o<-clm(immideas~undocumented*ethnocentrism + female + hispanic +white + age +northeast+south+midwest + lnincome + educ +born_usa + democrat+republican + media + polview + auth + ethnocentrism, data=mydata2)
+summary(model7o)
+exp(coef(model7o))
+model2o_cf<- exp(confint(model7o))
+model2o_cf
+
+
+model8<-clm(immjob~undocumented, data=mydata2)
+summary(model8)
+exp(coef(model8))
+model2o_cf<- exp(confint(model8))
+model2o_cf
+model8o<-clm(immjob~ undocumented + female + hispanic +white + age +northeast+south+midwest + lnincome + educ +born_usa + democrat+republican + media + polview + auth + ethnocentrism, data=mydata2)
+summary(model8o)
+exp(coef(model8o))
+model2o_cf<- exp(confint(model8o))
+model2o_cf
+
+model8o<-clm(immjob~ undocumented1*ethnocentrism + female + hispanic +white + age +northeast+south+midwest + lnincome + educ +born_usa + democrat+republican + media + polview + auth + ethnocentrism, data=mydata2)
+summary(model8o)
+exp(coef(model8o))
+model2o_cf<- exp(confint(model8o))
+model2o_cf
+
+
+
+model9<-clm(immgrowth~undocumented, data=mydata2)
+summary(model9)
+exp(coef(model9))
+model2o_cf<- exp(confint(model9))
+model2o_cf
+
+
+model9o<-clm(immgrowth~ undocumented*ethnocentrism + female + hispanic +white + age +northeast+south+midwest + lnincome + educ +born_usa + democrat+republican + media + polview + auth + ethnocentrism, data=mydata2)
+summary(model9o)
+exp(coef(model9o))
+model2o_cf<- exp(confint(model9o))
+model2o_cf
+
+
+
+model10o<-clm(immunit~undocumented, data=mydata2)
+summary(model10o)
+a<-margins(model10o)
+a
+summary(model10o)
+exp(coef(model10o))
+model10o_or<- exp(confint(model10o))
+model10o_or
+library(coefplot)
+a<-coefplot(model10o, intercept=FALSE)
+print(a)
+model10o<-clm(immunit~ ethnocentrism*undocumented + female + hispanic +white  +age + northeast+midwest+south + lnincome + educ +born_usa + democrat+republican + media + polview + auth + ethnocentrism, data=mydata2)
+summary(model10o)
+model10o<-clm(immfavor~ ethnocentrism*undocumented + female + hispanic +white  +age + northeast+midwest+south + lnincome + educ +born_usa + democrat+republican + media + polview + auth + ethnocentrism, data=mydata2)
+summary(model10o)
+
+library(margins)
+a<-margins(model10o)
+a<-plot_model(model10o, type="int", title="Fig. 7: predicted probabilities of whether immigrants should receive no favors")
+
+library(margins)
+a<-margins(model10o)
+a<-plot_model(model10o, type="int", title="Fig. 11: predicted probabilities of whether immigrants should not receive favors")
+
+
+
+exp(coef(model10o))
+confint(model10o)
+model10o_or<- exp(confint(model10o))
+model10o_or
+
+coefplot(model10o)
+*#*
+
+write.csv(mydata3, "~xdx.csv", row.names=TRUE)
+
+  
+coef_table = summary(model10o)$coef
+coefficient = coef_table[, 1]
+SE = (coef_table[, 2])
+# Combine results into a table
+results = data.frame(
+  coefficient = coefficient,
+  coefficient = coefficient,
+  lower = coefficient - 1.96 * SE,
+  upper = coefficient + 1.96 * SE
+)
+
+# remove the first four rows this way to get rid of large cut points CI
+results <- results[-c(1:4),]
+
+#assign the column name Variable to the first column
+Variable <- row.names(results)
+
+
+a<-ggplot(results, aes(x = coefficient, y = Variable))+
+   geom_point() +
+   geom_errorbarh(aes(xmin = lower, xmax = upper)) +
+   geom_vline(xintercept = 0, linetype = "dashed") +
+   labs(title = "Fig. 5: OLR of Agreeing Immigrants Reduce Unity on Seeing Word Undocumented Before Immigrant", x = "coefficient", y = "Variable")
+
+
+
+
+model11<-glm(transport~undocumented, data=mydata2)
+summary(model11)
+exp(coef(model11))
+model2o_cf<- exp(confint(model11))
+model2o_cf
+
+model11l<-glm(transport~ undocumented + female + hispanic +white  +age + northeast+midwest+south + lnincome + educ +born_usa + democrat+republican + media + polview + auth + ethnocentrism, data=mydata2)
+summary(model11l)
+exp(coef(model11l))
+
+#now do analyses with linear regression
+
+
+model1<-lm(letin~ undocumented, data=mydata1)
+model1
+summary(model1)
+
+model1o<-lm(letin~ undocumented + female + hispanic +white  +birthyear + region + log_income + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata1)
+model1o
+summary(model1o)
+
+model1o<-lm(immimp~ undocumented + female + hispanic +white  +birthyear + region + log_income + educ + born_usa + party + media + polview + auth + ethnocentrism, data=mydata1)
+
+#this reveals that using hte word undocumented (rather than illegal) is associated with wanting slightly fewer immigrants, and this is higher the older, the more republican/conservative/ethnocentric the participant is, 
+
+
+rep<-replications(letin~ undocumented + female + hispanic +white  +birthyear + log_income + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata)
+rep
+
+rep<-replications(letin~undocumented)
+aov(letin~undocumented, data=mydata)
+
+install.packages("MASS")
+library(MASS)
+model1o<-polr(letin~undocumented, data=mydata1)
+model1o
+summary(model1o)
+#not significant
+
+
+
+model2o<-lm(immimp~ undocumented + female + hispanic +white + region+birthyear + log_income + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata1)
+model2o
+summary(model2o)
+#not significant
+model2<-lm(immimp~undocumented, data=mydata1)
+summary(model2)
+
+model3o<-lm(immrights~ undocumented + female +region+ hispanic +white  +birthyear + log_income + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata1)
+summary(model3o)
+
+model3<-lm(immrights~undocumented, data=mydata1)
+summary(model3)
+
+model4o<-lm(immfavor~ undocumented + female + hispanic +white +  region + log_income + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata1)
+summary(model4o)
+
+model4<-lm(immfavor~undocumented, data=mydata1)
+summary(model4)
+
+
+model5o<-lm(immlang~ undocumented + female + hispanic +white +region +birthyear + log_income + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata1)
+summary(model5o)
+
+model5<-lm(immlang~undocumented, data=mydata1)
+summary(model5)
+
+
+model6o<-lm(immcrime~ undocumented + female + hispanic +white  +region +age + log_income + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata2)
+summary(model6o)
+#if you use the word undoucmented and add all these covariates 
+
+model6<-lm(immcrime~undocumented, data=mydata1)
+summary(model6)
+coefplot(model6, intercept=FALSE)
+
+
+model7o<-lm(immideas~ undocumented + female + hispanic +white  +birthyear + log_income + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata1)
+summary(model7o)
+
+model7<-lm(immideas~undocumented, data=mydata1)
+summary(model7)
+
+model8o<-lm(immjob~ undocumented + female + hispanic +white  +birthyear + log_income + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata1)
+summary(model8o)
+
+model8<-lm(immjob~undocumented, data=mydata1)
+summary(model8)
+
+
+
+
+model9o<-lm(immgrowth~ undocumented + female + hispanic +white  +birthyear + log_income + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata1)
+summary(model9o)
+
+model9<-lm(immgrowth~undocumented, data=mydata1)
+summary(model9)
+
+model10o<-lm(immunit~ undocumented + female + hispanic +white  +birthyear + region + log_income + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata1)
+summary(model10o)
+model10<-lm(immunit~undocumented, data=mydata1)
+summary(model10)
+
+model11l<-glm(transport~ undocumented + female + hispanic +white  +birthyear + log_income + educ +born_usa + party + media + polview + auth + ethnocentrism, data=mydata1)
+summary(model11l)
+
+model11<-glm(transport~undocumented, data=mydata1)
+summary(model11)
+summarise(mydata1)
+
+
